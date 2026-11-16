@@ -76,3 +76,6 @@ packages/engine/test/e2e/.fixtures-dist/
 # Local Bazel flags, read by .bazelrc.
 .bazelrc.user
 .turbo/
+# Local scratch: scratch checkouts, downloaded toolchains and assembled release trees. The
+# repository's tooling scans the working tree, so keep this out of its way.
+/.tmp/
