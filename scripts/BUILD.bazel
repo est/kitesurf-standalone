@@ -2,6 +2,7 @@ load("@aspect_rules_js//js:defs.bzl", "js_binary", "js_library", "js_test")
 load("@npm//:typescript/package_json.bzl", tsc = "bin")
 load("@pptr_specs//:defs.bzl", PPTR_SPECS = "SPECS")
 load("@pw_specs//:defs.bzl", PW_SPECS = "SPECS")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("//bazel:checks.bzl", "node_test", "tsc_test", "workspace_configs")
 load("//bazel:executors.bzl", "PW", "WPT", "for_test")
 load("//tests/e2e:defs.bzl", "e2e_shard_name")
@@ -531,6 +532,34 @@ js_test(
     ),
     entry_point = "e2e-gate.mjs",
     visibility = ["//tests/e2e:__pkg__"],
+)
+
+# Standalone engine release: the tarball the CI release workflow publishes per platform.
+#
+# The engine dist is architecture independent, so `dist` (//packages/engine:dist) is built once
+# and each tarball only swaps in a prebuilt workerd binary. Only the parts that live in the
+# repository are targets here; the workerd download and the tarball itself are the assembly
+# script's job, because Bazel cannot model "fetch a runtime for a platform that is not the host".
+js_library(
+    name = "engine_release_launcher",
+    srcs = ["engine-release/launcher.mjs"],
+)
+
+js_library(
+    name = "engine_release_notices",
+    srcs = ["engine-release/notices.mjs"],
+)
+
+sh_binary(
+    name = "engine_release",
+    srcs = ["engine-release/assemble-runtime.sh"],
+    data = [
+        ":engine_release_launcher",
+        ":engine_release_notices",
+        "engine-release/kitesurf-launch.sh",
+        "//packages/engine:package_json",
+    ],
+    visibility = ["//visibility:public"],
 )
 
 workspace_configs()
