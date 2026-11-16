@@ -3,9 +3,10 @@
 # over 127.0.0.1 — no Node, no wrangler, no Cloudflare account.
 #
 # The engine dist is architecture independent, so the expensive Bazel build happens once and each
-# platform tarball only swaps in a workerd binary for that platform. Every platform is assembled
-# and smoke tested on a runner of its own architecture, so linux-64 is verified on linux-64
-# rather than cross-packed.
+# platform tarball only swaps in a workerd binary for that platform. The linux tarballs are
+# assembled and smoke tested on a runner of their own architecture; the darwin ones are packed on
+# Linux, because only their smoke test needs macOS, and the assembly script checks the packed
+# binary's machine field either way.
 name: Release engine
 
 on:
@@ -113,22 +114,32 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # workerd publishes darwin-64 as well, so Intel Macs are covered. The macOS runners are
-          # Apple silicon and Rosetta is not guaranteed there, so darwin-64 packs without a local
-          # smoke run. Drop that row if Intel Macs are not wanted.
+          # Only the linux legs need a runner of the platform they pack, because that is what the
+          # smoke test executes. A darwin tarball holds a prebuilt workerd binary and an
+          # architecture-independent dist, so a Linux runner packs it correctly and the assembly
+          # script checks the binary's machine field instead of trusting the URL it came from.
+          # That keeps the release runnable on an account without macOS runners; giving a darwin
+          # row a macOS runner would only add the runtime smoke test back.
           - platform: linux-64
             runner: ubuntu-latest
             skip_smoke: "0"
+            allow_failure: "false"
           - platform: linux-arm64
             runner: ubuntu-24.04-arm
             skip_smoke: "0"
+            allow_failure: "false"
           - platform: darwin-arm64
-            runner: macos-14
-            skip_smoke: "0"
-          - platform: darwin-64
-            runner: macos-14
+            runner: ubuntu-latest
             skip_smoke: "1"
+            allow_failure: "true"
+          - platform: darwin-64
+            runner: ubuntu-latest
+            skip_smoke: "1"
+            allow_failure: "true"
     runs-on: ${{ matrix.runner }}
+    # One platform failing must not sink the others: their artifacts still upload, and the
+    # run stays green so a tag still produces a release with the tarballs that did build.
+    continue-on-error: ${{ matrix.allow_failure == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -169,10 +180,11 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
-  # Artifacts are enough for a dispatch, so this only publishes on a tag.
+  # Artifacts are enough for a dispatch, so this only publishes on a tag. It runs even when a
+  # platform row failed, because the tarballs that did build are still worth releasing.
   release:
-    needs: runtime
-    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    needs: [bundle, runtime]
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

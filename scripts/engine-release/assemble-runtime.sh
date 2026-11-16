@@ -81,6 +81,29 @@ fi
 cp "$WORKERD_BIN" "$OUT/runtime/workerd"
 chmod +x "$OUT/runtime/workerd"
 
+# A cross-packed tarball must still hold the runtime for its own platform, so check the machine
+# field of the binary rather than trusting which URL it came from. od is in both GNU and BSD
+# userlands; the ELF machine field sits at byte 18 and Mach-O's cputype at byte 4.
+verify_runtime() {
+  header=$(od -An -tx1 -N24 "$1" | tr -d ' \n')
+  magic=$(printf '%s' "$header" | cut -c1-8)
+  macho_cpu=$(printf '%s' "$header" | cut -c9-16)
+  elf_machine=$(printf '%s' "$header" | cut -c37-40)
+  case "$2" in
+    darwin-arm64) want_magic=cffaedfe; want_cpu=0c000001; got=$macho_cpu ;;
+    darwin-64) want_magic=cffaedfe; want_cpu=07000001; got=$macho_cpu ;;
+    linux-64) want_magic=7f454c46; want_cpu=3e00; got=$elf_machine ;;
+    linux-arm64) want_magic=7f454c46; want_cpu=b700; got=$elf_machine ;;
+    *) echo "no runtime check for $2" >&2; exit 2 ;;
+  esac
+  if [ "$magic" != "$want_magic" ] || [ "$got" != "$want_cpu" ]; then
+    echo "runtime for $2 has an unexpected header $magic/$got (want $want_magic/$want_cpu)" >&2
+    exit 1
+  fi
+  echo "    runtime $2 header $magic/$got"
+}
+verify_runtime "$OUT/runtime/workerd" "$PLATFORM"
+
 echo "==> staging the asset tree the engine reads through FONT_ASSETS"
 # `wrangler` serves these from the assets binding in a deploy; standalone they sit next to the
 # runtime. The engine needs them: without the UA fonts, text lays out with zero height.
